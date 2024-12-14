@@ -16,7 +16,7 @@ typedef struct {
 void parse_ini_file(const char *filename);
 
 // Function to search for a domain in the payload and return the corresponding app_name
-char *find_app_name_in_payload(const char *payload);
+char *find_app_name_in_payload(const char *payload, size_t payload_len);
 
 // Function to cleanup the hash map
 void cleanup_domain_map();

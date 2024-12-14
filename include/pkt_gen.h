@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <zmq.h>
+
 #define NUM_PACKETS 100000
 #define NUM_FLOWS 50000
 #define EXIT_FAILURE 1
@@ -41,7 +43,7 @@ typedef struct {
     char dst_ip[16];
     uint16_t dst_port;
     char protocol[4];
-    char payload[65535];
+    char *payload;
 } Packet;
 
 typedef struct {

@@ -27,7 +27,6 @@ const char *lookup_domain(const char *domain) {
 
 // Parse INI file and load mappings
 void parse_ini_file(const char *filename) {
-    printf("%s\n",filename);
     FILE *file = fopen(filename, "r");
     if (file == NULL) {
         perror("Failed to open file");
@@ -54,17 +53,17 @@ void parse_ini_file(const char *filename) {
 }
 
 // Function to search for a domain in the payload and return the app_name
-char *find_app_name_in_payload(const char *payload) {
+char *find_app_name_in_payload(const char *payload, size_t payload_len) {
     DomainMapping *entry;
+    
+    // Ensure we only search within the given length of the payload
     for (entry = domain_map; entry != NULL; entry = entry->hh.next) {
-        printf("%s\n",payload);
-        printf("%s\n",entry->domain);
-        if (strstr(payload, entry->domain) != NULL) {
-            printf("found\n");
+        // We check if the domain exists within the payload within the provided length
+        if (payload_len > 0 && strstr(payload, entry->domain) != NULL) {
             return entry->app_name;
         }
-        printf("------\n\n");
     }
+    
     return NULL; 
 }
 

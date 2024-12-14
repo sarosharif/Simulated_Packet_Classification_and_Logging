@@ -5,6 +5,9 @@
 FlowMapEntry *flow_map = NULL; // Hash table
 const char *prog_name;
 
+static void *context = NULL;
+static void *socket = NULL;
+
 // Function to generate a unique flow key
 void generate_flow_key(Packet *pkt, FlowKey *key) {
     strcpy(key->src_ip, pkt->src_ip);
@@ -23,8 +26,91 @@ void generate_flow_key_rev(Packet *pkt, FlowKey *key) {
 }
 
 
+void zeroMQ_init()
+{
+    // Create ZeroMQ context
+    context = zmq_ctx_new();
+    if (context == NULL) {
+        perror("Failed to create ZeroMQ context");
+        return;
+    }
+
+    // Create ZeroMQ socket
+    socket = zmq_socket(context, ZMQ_PUSH);
+    if (socket == NULL) {
+        perror("Failed to create ZeroMQ socket");
+        zmq_ctx_destroy(context); // Clean up the context
+        return;
+    }
+
+    // Connect to the collector
+    if (zmq_connect(socket, "tcp://127.0.0.1:5555") != 0) {
+        perror("Failed to connect ZeroMQ socket");
+        zmq_close(socket);
+        zmq_ctx_destroy(context); // Clean up the context
+        return;
+    }
+
+    printf("ZeroMQ initialized successfully.\n");
+}
+
+void send_payload_with_zero_copy(const char *payload, size_t payload_len)
+{
+    if (socket == NULL) {
+        perror("ZeroMQ socket is not initialized");
+        return;
+    }
+
+    zmq_msg_t msg;
+    // Initialize the ZeroMQ message
+    if (zmq_msg_init_data(&msg, (void *)payload, payload_len, NULL, NULL) != 0) {
+        perror("Failed to initialize ZeroMQ message");
+        return;
+    }
+
+    // Send the message to the other process
+    int rc = zmq_msg_send(&msg, socket, 0);
+    if (rc == -1) {
+        perror("Failed to send ZeroMQ message");
+    } else {
+        printf("Message sent successfully: %zu bytes\n", payload_len);
+    }
+
+    // No need to free msg, ZeroMQ will handle it
+    zmq_msg_close(&msg);
+}
+
+
+void format_and_send_msg_hdr(Packet *pkt, FlowMapEntry *entry) {
+    // Calculate the size of the formatted message
+    size_t msg_len = snprintf(NULL, 0,
+        "Details: %s|%s|%s|%u|%u|%s", // Using '|' as delimiter
+        prog_name, pkt->src_ip, pkt->dst_ip, pkt->src_port, pkt->dst_port,
+        entry->app_common_name ? entry->app_common_name : "Unclassified"
+    );
+    // Allocate memory for the message, including space for the null-terminator
+    char *msg = (char *)malloc(msg_len + 1);
+    if (msg == NULL) {
+        perror("Failed to allocate memory for message");
+        return;
+    }
+
+    // Format the message into the allocated memory
+    snprintf(msg, msg_len + 1,
+        "Details: %s|%s|%s|%u|%u|%s", // Using '|' as delimiter
+        prog_name, pkt->src_ip, pkt->dst_ip, pkt->src_port, pkt->dst_port,
+        entry->app_common_name ? entry->app_common_name : "Unclassified"
+    );
+
+    // Send the message using the zero-copy function
+    send_payload_with_zero_copy(msg, msg_len);
+
+}
+
 // Modify the flow lookup and insertion logic
-int extract_and_process_packets_from_mmap(const char *filename, Packet *packets, FlowKey *flows, int *flow_to_packet_map, int max_packets, int max_flows) {
+int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
+                                            int *flow_to_packet_map, int max_packets, 
+                                            int max_flows) {
     int fd = open(filename, O_RDONLY);
     if (fd < 0) {
         perror("Failed to open pcap file");
@@ -59,7 +145,7 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
     int packet_count = 0;
     int flow_count = 0;
 
-    while (current < end && packet_count < max_packets) {
+    while (current < end) {
         PcapPacketHeader *packet_header = (PcapPacketHeader *)current;
         current += sizeof(PcapPacketHeader);
 
@@ -73,7 +159,8 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
 
         if (packet_header->incl_len < 34) continue;
 
-        Packet *pkt = &packets[packet_count];
+        Packet *pkt = malloc(sizeof(Packet));
+        //copying header but not payload
         sprintf(pkt->src_ip, "%u.%u.%u.%u", data[26], data[27], data[28], data[29]);
         sprintf(pkt->dst_ip, "%u.%u.%u.%u", data[30], data[31], data[32], data[33]);
         pkt->src_port = (data[34] << 8) | data[35];
@@ -82,9 +169,7 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
         pkt->protocol[3] = '\0';
 
         size_t payload_len = packet_header->incl_len > 54 ? packet_header->incl_len - 54 : 0;
-        strncpy(pkt->payload, (const char *)(data + 54), payload_len);
-        pkt->payload[payload_len] = '\0';
-
+        pkt->payload = (char *)(data + 54);
         // Create a flow key
         FlowKey key;
         FlowKey rev_key;
@@ -112,7 +197,6 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
             FlowKey *flow = &flows[flow_count];
             generate_flow_key(pkt,flow);
 
-
             // Add to hash map
             entry = (FlowMapEntry *)malloc(sizeof(FlowMapEntry));
             entry->key = key;
@@ -126,7 +210,7 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
         if (entry->is_classified==0)
         {
             entry->num_pkt_sent_for_classification++;
-            entry->app_common_name = find_app_name_in_payload(pkt->payload);
+            entry->app_common_name = find_app_name_in_payload(pkt->payload,payload_len);
             if (entry->app_common_name != NULL)
             {
                 entry->is_classified = 1;
@@ -138,13 +222,17 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
             }
 
         } 
+       
+        if (pkt->payload)
+        {
+            format_and_send_msg_hdr(pkt,entry);
+            send_payload_with_zero_copy(pkt->payload, payload_len);
+        }
         packet_count++;
     }
 
-
-
-    munmap(file_data, file_size);
-    close(fd);
+    // munmap(file_data, file_size);
+    // close(fd);
     return packet_count;
 }
 
@@ -153,44 +241,37 @@ int extract_and_process_packets_from_mmap(const char *filename, Packet *packets,
 
 int main(int argc, char *argv[]) {
     // identifier (b1,b2,b3)
+    const char *filename = "domain_to_app.ini";
+
     prog_name = argv[0];
 
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <pcap_file>\n", argv[0]);
         return EXIT_FAILURE;
     }
-    
-    const char *filename = "domain_to_app.ini";
     parse_ini_file(filename);
-
-
-    // Read packets from a memory-mapped pcap file
-    Packet *packets = malloc(NUM_PACKETS * sizeof(Packet));
-    if (!packets) {
-        perror("Failed to allocate memory for packets");
-        return EXIT_FAILURE;
-    }
 
     // Allocate memory for flow data structures
     FlowKey *flows = malloc(NUM_FLOWS * sizeof(FlowKey));
     if (!flows) {
         perror("Failed to allocate memory for flows");
-        free(packets);
         return EXIT_FAILURE;
     }
 
     int *flow_to_packet_map = malloc(NUM_PACKETS * sizeof(int));
     if (!flow_to_packet_map) {
         perror("Failed to allocate memory for flow-to-packet map");
-        free(packets);
         free(flows);
         return EXIT_FAILURE;
     }
 
-    // Call extract_and_process_packets_from_mmap with the correct arguments
-    int num_packets = extract_and_process_packets_from_mmap(argv[1], packets, flows, flow_to_packet_map, NUM_PACKETS, NUM_FLOWS);
+    // initialize zero mq
+    zeroMQ_init();
+
+    int num_packets = extract_and_process_packets_from_mmap(argv[1], flows,
+                                                            flow_to_packet_map, NUM_PACKETS,
+                                                            NUM_FLOWS);
     if (num_packets < 0) {
-        free(packets);
         free(flows);
         free(flow_to_packet_map);
         return EXIT_FAILURE;
@@ -199,9 +280,9 @@ int main(int argc, char *argv[]) {
     printf("Extracted %d packets from pcap file.\n", num_packets);
 
     // Clean up allocated memory
-    free(packets);
     free(flows);
     free(flow_to_packet_map);
+    // need to free hashmap, haven't done that yet
 
     return EXIT_SUCCESS;
 }
