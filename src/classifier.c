@@ -55,15 +55,15 @@ void parse_ini_file(const char *filename) {
 // Function to search for a domain in the payload and return the app_name
 char *find_app_name_in_payload(const char *payload, size_t payload_len) {
     DomainMapping *entry;
-    
+
     // Ensure we only search within the given length of the payload
     for (entry = domain_map; entry != NULL; entry = entry->hh.next) {
-        // We check if the domain exists within the payload within the provided length
-        if (payload_len > 0 && strstr(payload, entry->domain) != NULL) {
+        // Use memmem to search for the domain within the payload
+        if (payload_len > 0 && memmem(payload, payload_len, entry->domain, strlen(entry->domain)) != NULL) {
             return entry->app_name;
         }
     }
-    
+
     return NULL; 
 }
 

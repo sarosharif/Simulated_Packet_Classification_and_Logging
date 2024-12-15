@@ -29,10 +29,23 @@ int receive_and_log_payload_with_zero_copy(void *socket, FILE* log_file) {
         fprintf(log_file, "%.*s\n", (int)received_payload_len, received_payload);
     } else {
         // Otherwise, print with "PAYLOAD: " prefix
-        fprintf(log_file, "PAYLOAD: %.*s\n\n\n", (int)received_payload_len, received_payload);
+        fprintf(log_file,"Payload (hex): ");
+        for (size_t i = 0; i < received_payload_len; i++) {
+            fprintf(log_file,"%02x ", (unsigned char)received_payload[i]);
+            if ((i + 1) % 16 == 0) {
+                fprintf(log_file,"\n");
+            }
+        }
+        fprintf(log_file,"\n\n");
         // print payload on terminal aswell
-        printf("PAYLOAD: %.*s\n------------\n\n", (int)received_payload_len, received_payload);
-
+        printf("Payload (hex): ");
+        for (size_t i = 0; i < received_payload_len; i++) {
+            printf("%02x ", (unsigned char)received_payload[i]);
+            if ((i + 1) % 16 == 0) {
+                printf("\n");
+            }
+        }
+        printf("\n\n");
     }
 
 

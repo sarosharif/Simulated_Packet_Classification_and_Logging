@@ -2,7 +2,7 @@
 #define CLASSIFIER_H
 
 #include "uthash.h"  // Include uthash for hash map
-
+#include <string.h> 
 #define MAX_LINE_LENGTH 1024
 
 // Structure for storing domain to application name mapping
