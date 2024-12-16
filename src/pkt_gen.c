@@ -39,7 +39,7 @@ void zeroMQ_init()
     socket = zmq_socket(context, ZMQ_PUSH);
     if (socket == NULL) {
         perror("Failed to create ZeroMQ socket");
-        zmq_ctx_destroy(context); // Clean up the context
+        zmq_ctx_destroy(context); 
         return;
     }
 
@@ -47,7 +47,7 @@ void zeroMQ_init()
     if (zmq_connect(socket, "tcp://127.0.0.1:5555") != 0) {
         perror("Failed to connect ZeroMQ socket");
         zmq_close(socket);
-        zmq_ctx_destroy(context); // Clean up the context
+        zmq_ctx_destroy(context); 
         return;
     }
 
@@ -80,14 +80,16 @@ void send_payload_with_zero_copy(const char *payload, size_t payload_len)
     zmq_msg_close(&msg);
 }
 
+void format_and_send_msg_hdr(Packet *pkt, FlowMapEntry *entry, size_t payload_len) {
 
-void format_and_send_msg_hdr(Packet *pkt, FlowMapEntry *entry) {
     // Calculate the size of the formatted message
     size_t msg_len = snprintf(NULL, 0,
-        "Details: %s|%s|%s|%u|%u|%s", // Using '|' as delimiter
+        "Details: %s|%s|%s|%u|%u|%s|%zu", // Using '|' as delimiter
         prog_name, pkt->src_ip, pkt->dst_ip, pkt->src_port, pkt->dst_port,
-        entry->app_common_name ? entry->app_common_name : "Unclassified"
+        entry->app_common_name ? entry->app_common_name : "Unclassified",
+        payload_len
     );
+
     // Allocate memory for the message, including space for the null-terminator
     char *msg = (char *)malloc(msg_len + 1);
     if (msg == NULL) {
@@ -97,20 +99,22 @@ void format_and_send_msg_hdr(Packet *pkt, FlowMapEntry *entry) {
 
     // Format the message into the allocated memory
     snprintf(msg, msg_len + 1,
-        "Details: %s|%s|%s|%u|%u|%s", // Using '|' as delimiter
+        "Details: %s|%s|%s|%u|%u|%s|%zu", // Using '|' as delimiter
         prog_name, pkt->src_ip, pkt->dst_ip, pkt->src_port, pkt->dst_port,
-        entry->app_common_name ? entry->app_common_name : "Unclassified"
+        entry->app_common_name ? entry->app_common_name : "Unclassified",
+        payload_len
     );
 
     // Send the message using the zero-copy function
     send_payload_with_zero_copy(msg, msg_len);
 
+    // Free the allocated memory after sending
+    free(msg);
 }
 
 // Modify the flow lookup and insertion logic
 int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
-                                            int *flow_to_packet_map, int max_packets, 
-                                            int max_flows) {
+                                            int max_packets, int max_flows) {
     int fd = open(filename, O_RDONLY);
     if (fd < 0) {
         perror("Failed to open pcap file");
@@ -159,7 +163,7 @@ int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
 
         if (packet_header->incl_len < 34) continue;
 
-        Packet *pkt = malloc(sizeof(Packet));
+        Packet *pkt = malloc(sizeof(Packet)); // this does not contain actual pkt, it contains metadata
         //copying header but not payload
         sprintf(pkt->src_ip, "%u.%u.%u.%u", data[26], data[27], data[28], data[29]);
         sprintf(pkt->dst_ip, "%u.%u.%u.%u", data[30], data[31], data[32], data[33]);
@@ -175,16 +179,19 @@ int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
         FlowKey rev_key;
 
         generate_flow_key(pkt, &key);
+        generate_flow_key_rev(pkt, &rev_key);
 
         // Check if the flow exists in the hash map
         FlowMapEntry *entry;
+
         HASH_FIND(hh, flow_map, &key, sizeof(FlowKey), entry);
         if (entry == NULL)
         {
             // Check if the flow exists in the hash map but rev direction
-            generate_flow_key_rev(pkt, &rev_key);
             HASH_FIND(hh, flow_map, &rev_key, sizeof(FlowKey), entry);
         }
+        if (entry != NULL)
+        printf("entry src_ip %s dst_ip %s\n", entry->key.src_ip,entry->key.dst_ip);
 
 
         if (entry == NULL) {
@@ -225,14 +232,17 @@ int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
        
         if (pkt->payload)
         {
-            format_and_send_msg_hdr(pkt,entry);
+            format_and_send_msg_hdr(pkt,entry, payload_len);
             send_payload_with_zero_copy(pkt->payload, payload_len);
         }
         packet_count++;
+        free(pkt);
     }
 
+
+    // ideally we should do this however this causes a conflict, the file is unmapped before all the pkts are sent resulting in segfault
     // munmap(file_data, file_size);
-    // close(fd);
+    // close(fd); 
     return packet_count;
 }
 
@@ -258,22 +268,13 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    int *flow_to_packet_map = malloc(NUM_PACKETS * sizeof(int));
-    if (!flow_to_packet_map) {
-        perror("Failed to allocate memory for flow-to-packet map");
-        free(flows);
-        return EXIT_FAILURE;
-    }
-
     // initialize zero mq
     zeroMQ_init();
 
     int num_packets = extract_and_process_packets_from_mmap(argv[1], flows,
-                                                            flow_to_packet_map, NUM_PACKETS,
-                                                            NUM_FLOWS);
+                                                            NUM_PACKETS, NUM_FLOWS);
     if (num_packets < 0) {
         free(flows);
-        free(flow_to_packet_map);
         return EXIT_FAILURE;
     }
 
@@ -281,7 +282,6 @@ int main(int argc, char *argv[]) {
 
     // Clean up allocated memory
     free(flows);
-    free(flow_to_packet_map);
     // need to free hashmap, haven't done that yet
 
     return EXIT_SUCCESS;
