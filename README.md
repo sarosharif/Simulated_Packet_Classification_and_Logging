@@ -41,17 +41,16 @@ cd build
 ./b3 ../test_captures/postman_echo_http.pcap
 ```
 
-for this to run, collector must be running before you run b1,b2,b3. If you'll give wrong inputs to the binary it'll crash. That case is not handled. 
-collector will generate three different logs collector_b1.log, collector_b2.log, collector_b3.log. 
-b1, b2, b3 can handle one capture only after that you'll need to run it again if you wish. 
-You can run it with capture of your own choice. 
+1. For this to run, collector must be running before you run b1,b2,b3. If you'll give wrong inputs to the binary it'll crash. That case is not handled. 
+2. Collector will generate three different logs collector_b1.log, collector_b2.log, collector_b3.log. b1, b2, b3 can handle one capture only after that you'll need to run it again if you wish. 
+3. You can run it with capture of your own choice. 
 
 ## Limitations 
 
 1. ipv6 is not handled 
 2. Classification logic is simple pattern matching, you can add more things to domain_to_app.ini
 3. Packet is not parsed beyond ip header so no sni based matching 
-4. If te collector log rollover is not handled, it'll keep growing as long as collector is running 
+4. The collector log rollover is not handled, it'll keep growing as long as collector is running 
 5. Flow state is not maintained, meaning if the flow closes and opens again with same ip, port and protocol for a different app classification will be wrong. 
 6. If capture or pkts are corrupted, that is not handled 
 7. Any protocol other than udp and tcp is not handled 
