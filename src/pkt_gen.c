@@ -176,10 +176,9 @@ int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
         pkt->payload = (char *)(data + 54);
         // Create a flow key
         FlowKey key;
-        FlowKey rev_key;
+        // FlowKey rev_key;
 
         generate_flow_key(pkt, &key);
-        generate_flow_key_rev(pkt, &rev_key);
 
         // Check if the flow exists in the hash map
         FlowMapEntry *entry;
@@ -188,7 +187,8 @@ int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
         if (entry == NULL)
         {
             // Check if the flow exists in the hash map but rev direction
-            HASH_FIND(hh, flow_map, &rev_key, sizeof(FlowKey), entry);
+            generate_flow_key_rev(pkt, &key);
+            HASH_FIND(hh, flow_map, &key, sizeof(FlowKey), entry);
         }
         if (entry == NULL) {
             // Add a new flow if not found
