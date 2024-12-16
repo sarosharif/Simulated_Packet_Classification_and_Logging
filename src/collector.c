@@ -100,10 +100,17 @@ int receive_and_log_payload_with_zero_copy(void *socket) {
                 // Log the details and payload
                 fprintf(log_files[i], "%s\n", active_details[i].details_msg);
                 fprintf(log_files[i], "Payload (hex): ");
+                printf("%s\n", active_details[i].details_msg);
+                printf("Payload (hex): ");
                 for (size_t j = 0; j < received_payload_len; j++) {
                     fprintf(log_files[i], "%02x ", (unsigned char)received_payload[j]);
+                    printf("%02x ", (unsigned char)received_payload[j]);
+
                 }
                 fprintf(log_files[i], "\n\n");
+                printf("\n\n");
+
+                
 
                 // Deactivate the details entry after matching
                 active_details[i].is_active = 0;

@@ -25,4 +25,4 @@ COPY . /app
 RUN meson setup build && \
     ninja -C build
 
-CMD ["tail -f /dev/null"]
+CMD ["tail", "-f", "/dev/null"]

@@ -190,10 +190,6 @@ int extract_and_process_packets_from_mmap(const char *filename, FlowKey *flows,
             // Check if the flow exists in the hash map but rev direction
             HASH_FIND(hh, flow_map, &rev_key, sizeof(FlowKey), entry);
         }
-        if (entry != NULL)
-        printf("entry src_ip %s dst_ip %s\n", entry->key.src_ip,entry->key.dst_ip);
-
-
         if (entry == NULL) {
             // Add a new flow if not found
             if (flow_count >= max_flows) {
